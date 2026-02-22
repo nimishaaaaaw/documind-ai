@@ -1,3 +1,5 @@
+[![Live](https://img.shields.io/badge/Live-Render-green?style=for-the-badge)](https://documind-ai-vozp.onrender.com/)
+
 # 🚀 DocuMind AI
 
 A production-ready Retrieval-Augmented Generation (RAG) system that allows users to upload documents and ask context-aware questions using semantic search + Groq LLM.
