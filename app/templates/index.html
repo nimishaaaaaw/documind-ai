@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DocuMind AI</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app-wrapper">
+
+    <div class="window-header">
+        <div class="dot pink"></div>
+        <div class="dot blue"></div>
+        <div class="dot purple"></div>
+    </div>
+
+    <div class="app-container">
+
+        <!-- Dark Mode Toggle -->
+        <button onclick="toggleDarkMode()" class="glass-btn secondary small-btn">🌙</button>
+
+        <h1 class="title">DocuMind AI</h1>
+        <p class="subtitle">Upload a document. Ask anything.</p>
+
+        <!-- Upload Section -->
+        <div class="upload-form">
+            <div id="dropZone" class="drop-zone">
+                Drag & Drop file here or click to select
+                <input type="file" id="fileInput" hidden>
+            </div>
+            <button onclick="uploadFile()" class="glass-btn">Upload</button>
+        </div>
+
+        <div id="filePreview" class="file-preview"></div>
+
+        <!-- Query Section -->
+        <div class="query-form">
+            <input type="text" id="questionInput" placeholder="Ask a question..." class="question-input">
+            <button onclick="askQuestion()" class="glass-btn">Ask</button>
+            <button onclick="clearAll()" class="glass-btn secondary">Reset</button>
+        </div>
+
+        <!-- Loader -->
+        <div id="loader" class="loader" style="display:none;"></div>
+
+        <!-- Answer -->
+        <div id="answerBox" class="answer-box" style="display:none;">
+            <h3>Answer</h3>
+            <p id="answerText"></p>
+        </div>
+
+    </div>
+</div>
+
+<!-- Custom Modal -->
+<div id="customModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <p id="modalMessage"></p>
+        <button onclick="closeModal()" class="glass-btn">OK</button>
+    </div>
+</div>
+
+<script>
+
+// -----------------------------
+// DRAG & DROP SETUP
+// -----------------------------
+const dropZone = document.getElementById("dropZone");
+const fileInput = document.getElementById("fileInput");
+const filePreview = document.getElementById("filePreview");
+
+dropZone.addEventListener("click", () => fileInput.click());
+
+dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+});
+
+dropZone.addEventListener("dragleave", () => {
+    dropZone.classList.remove("dragover");
+});
+
+dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    fileInput.files = e.dataTransfer.files;
+    previewFileName();
+});
+
+fileInput.addEventListener("change", previewFileName);
+
+function previewFileName() {
+    if (fileInput.files.length > 0) {
+        filePreview.innerText = "Selected: " + fileInput.files[0].name;
+    }
+}
+
+// -----------------------------
+// MODAL
+// -----------------------------
+function showModal(message) {
+    document.getElementById("modalMessage").innerText = message;
+    document.getElementById("customModal").style.display = "flex";
+}
+
+function closeModal() {
+    document.getElementById("customModal").style.display = "none";
+}
+
+// -----------------------------
+// LOADER
+// -----------------------------
+function showLoader() {
+    document.getElementById("loader").style.display = "block";
+}
+
+function hideLoader() {
+    document.getElementById("loader").style.display = "none";
+}
+
+// -----------------------------
+// UPLOAD
+// -----------------------------
+async function uploadFile() {
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showModal("Please select a file first.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    showLoader();
+
+    try {
+        const response = await fetch("/upload", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+        showModal(data.message);
+
+    } catch (error) {
+        showModal("Upload failed. Please try again.");
+    }
+
+    hideLoader();
+}
+
+// -----------------------------
+// TYPING EFFECT
+// -----------------------------
+function typeWriterEffect(text, element) {
+    element.innerHTML = "";
+    let i = 0;
+
+    function typing() {
+        if (i < text.length) {
+            const char = text[i] === " " ? "&nbsp;" : text[i];
+            element.innerHTML += char;
+            i++;
+            setTimeout(typing, 12);
+        }
+    }
+
+    typing();
+}
+
+// -----------------------------
+// QUERY
+// -----------------------------
+async function askQuestion() {
+    const question = document.getElementById("questionInput").value.trim();
+
+    if (!question) {
+        showModal("Please enter a question.");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("question", question);
+
+    showLoader();
+
+    try {
+        const response = await fetch("/query", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+
+        const answerBox = document.getElementById("answerBox");
+        const answerText = document.getElementById("answerText");
+
+        answerBox.style.display = "block";
+        answerBox.classList.add("fade-in");
+
+        typeWriterEffect(data.answer, answerText);
+
+    } catch (error) {
+        showModal("Something went wrong. Please try again.");
+    }
+
+    hideLoader();
+}
+
+// -----------------------------
+// RESET
+// -----------------------------
+function clearAll() {
+    document.getElementById("questionInput").value = "";
+    fileInput.value = "";
+    filePreview.innerText = "";
+    document.getElementById("answerBox").style.display = "none";
+}
+
+// -----------------------------
+// DARK MODE
+// -----------------------------
+function toggleDarkMode() {
+    document.body.classList.toggle("dark-mode");
+}
+
+</script>
+
+</body>
+</html>
