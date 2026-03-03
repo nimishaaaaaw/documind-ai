@@ -9,3 +9,5 @@ pypdf
 python-docx
 openai
 python-dotenv
+rank-bm25
+nltk

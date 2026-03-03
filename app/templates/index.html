@@ -8,7 +8,6 @@
 <body>
 
 <div class="app-wrapper">
-
     <div class="window-header">
         <div class="dot pink"></div>
         <div class="dot blue"></div>
@@ -16,8 +15,6 @@
     </div>
 
     <div class="app-container">
-
-        <!-- Dark Mode Toggle -->
         <button onclick="toggleDarkMode()" class="glass-btn secondary small-btn">🌙</button>
 
         <h1 class="title">DocuMind AI</h1>
@@ -27,18 +24,19 @@
         <div class="upload-form">
             <div id="dropZone" class="drop-zone">
                 Drag & Drop file here or click to select
-                <input type="file" id="fileInput" hidden>
+                <input type="file" id="fileInput" hidden accept=".pdf,.txt,.docx">
             </div>
             <button onclick="uploadFile()" class="glass-btn">Upload</button>
         </div>
 
         <div id="filePreview" class="file-preview"></div>
+        <div id="docStats" class="doc-stats" style="display:none;"></div>
 
         <!-- Query Section -->
         <div class="query-form">
-            <input type="text" id="questionInput" placeholder="Ask a question..." class="question-input">
+            <input type="text" id="questionInput" placeholder="Ask a question about your document..." class="question-input" onkeydown="if(event.key==='Enter') askQuestion()">
             <button onclick="askQuestion()" class="glass-btn">Ask</button>
-            <button onclick="clearAll()" class="glass-btn secondary">Reset</button>
+            <button onclick="resetSession()" class="glass-btn secondary">Reset</button>
         </div>
 
         <!-- Loader -->
@@ -46,14 +44,36 @@
 
         <!-- Answer -->
         <div id="answerBox" class="answer-box" style="display:none;">
+
+            <!-- Confidence badge -->
+            <div id="confidenceBadge" class="confidence-badge" style="display:none;"></div>
+
+            <!-- Sub-queries used -->
+            <div id="subQueriesBox" class="sub-queries-box" style="display:none;">
+                <span class="sub-queries-label">🔍 Query decomposed into:</span>
+                <ul id="subQueriesList"></ul>
+            </div>
+
             <h3>Answer</h3>
             <p id="answerText"></p>
+
+            <!-- Sources -->
+            <div id="sourcesBox" class="sources-box" style="display:none;">
+                <h4>📄 Sources</h4>
+                <div id="sourcesList"></div>
+            </div>
+        </div>
+
+        <!-- Conversation History -->
+        <div id="historyBox" class="history-box" style="display:none;">
+            <h4>💬 Conversation History</h4>
+            <div id="historyList"></div>
         </div>
 
     </div>
 </div>
 
-<!-- Custom Modal -->
+<!-- Modal -->
 <div id="customModal" class="modal" style="display:none;">
     <div class="modal-content">
         <p id="modalMessage"></p>
@@ -62,136 +82,177 @@
 </div>
 
 <script>
+// ── Session management ──
+let sessionId = localStorage.getItem("documind_session");
+let conversationHistory = [];
 
-// -----------------------------
-// DRAG & DROP SETUP
-// -----------------------------
+async function initSession() {
+    if (!sessionId) {
+        const res = await fetch("/session", { method: "POST" });
+        const data = await res.json();
+        sessionId = data.session_id;
+        localStorage.setItem("documind_session", sessionId);
+    }
+}
+
+initSession();
+
+// ── Drag & Drop ──
 const dropZone = document.getElementById("dropZone");
 const fileInput = document.getElementById("fileInput");
-const filePreview = document.getElementById("filePreview");
 
 dropZone.addEventListener("click", () => fileInput.click());
-
-dropZone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropZone.classList.add("dragover");
-});
-
-dropZone.addEventListener("dragleave", () => {
-    dropZone.classList.remove("dragover");
-});
-
+dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
 dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropZone.classList.remove("dragover");
     fileInput.files = e.dataTransfer.files;
     previewFileName();
 });
-
 fileInput.addEventListener("change", previewFileName);
 
 function previewFileName() {
     if (fileInput.files.length > 0) {
-        filePreview.innerText = "Selected: " + fileInput.files[0].name;
+        document.getElementById("filePreview").innerText = "Selected: " + fileInput.files[0].name;
     }
 }
 
-// -----------------------------
-// MODAL
-// -----------------------------
+// ── Modal ──
 function showModal(message) {
     document.getElementById("modalMessage").innerText = message;
     document.getElementById("customModal").style.display = "flex";
 }
-
 function closeModal() {
     document.getElementById("customModal").style.display = "none";
 }
 
-// -----------------------------
-// LOADER
-// -----------------------------
-function showLoader() {
-    document.getElementById("loader").style.display = "block";
-}
+// ── Loader ──
+function showLoader() { document.getElementById("loader").style.display = "block"; }
+function hideLoader() { document.getElementById("loader").style.display = "none"; }
 
-function hideLoader() {
-    document.getElementById("loader").style.display = "none";
-}
-
-// -----------------------------
-// UPLOAD
-// -----------------------------
+// ── Upload ──
 async function uploadFile() {
     const file = fileInput.files[0];
-
-    if (!file) {
-        showModal("Please select a file first.");
-        return;
-    }
+    if (!file) { showModal("Please select a file first."); return; }
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("session_id", sessionId);
 
     showLoader();
-
     try {
-        const response = await fetch("/upload", {
-            method: "POST",
-            body: formData
-        });
-
+        const response = await fetch("/upload", { method: "POST", body: formData });
         const data = await response.json();
-        showModal(data.message);
 
-    } catch (error) {
+        if (response.ok) {
+            showModal(data.message);
+            // Show doc stats
+            const statsBox = document.getElementById("docStats");
+            statsBox.style.display = "block";
+            statsBox.innerHTML = `📊 <strong>${data.chunks_created}</strong> semantic chunks · <strong>${data.pages_detected}</strong> pages detected`;
+            // Reset history display
+            conversationHistory = [];
+            document.getElementById("historyBox").style.display = "none";
+            document.getElementById("historyList").innerHTML = "";
+        } else {
+            showModal(data.detail || "Upload failed.");
+        }
+    } catch (err) {
         showModal("Upload failed. Please try again.");
     }
-
     hideLoader();
 }
 
-// -----------------------------
-// TYPING EFFECT
-// -----------------------------
+// ── Typing Effect ──
 function typeWriterEffect(text, element) {
     element.innerHTML = "";
     let i = 0;
-
     function typing() {
         if (i < text.length) {
-            const char = text[i] === " " ? "&nbsp;" : text[i];
-            element.innerHTML += char;
+            element.innerHTML += text[i] === " " ? "&nbsp;" : text[i];
             i++;
-            setTimeout(typing, 12);
+            setTimeout(typing, 10);
         }
     }
-
     typing();
 }
 
-// -----------------------------
-// QUERY
-// -----------------------------
-async function askQuestion() {
-    const question = document.getElementById("questionInput").value.trim();
+// ── Confidence Badge ──
+function renderConfidence(score) {
+    const badge = document.getElementById("confidenceBadge");
+    if (!score) { badge.style.display = "none"; return; }
 
-    if (!question) {
-        showModal("Please enter a question.");
+    badge.style.display = "inline-block";
+    let label, color;
+    if (score >= 8) { label = "High confidence"; color = "#22c55e"; }
+    else if (score >= 5) { label = "Medium confidence"; color = "#f59e0b"; }
+    else { label = "Low confidence"; color = "#ef4444"; }
+
+    badge.innerHTML = `<span style="color:${color}">● ${label} (${score}/10)</span>`;
+}
+
+// ── Sources ──
+function renderSources(sources) {
+    const sourcesBox = document.getElementById("sourcesBox");
+    const sourcesList = document.getElementById("sourcesList");
+
+    if (!sources || sources.length === 0) {
+        sourcesBox.style.display = "none";
         return;
     }
 
+    sourcesBox.style.display = "block";
+    sourcesList.innerHTML = sources.map((s, i) =>
+        `<div class="source-item">
+            <span class="source-page">Page ${s.page}</span>
+            <span class="source-snippet">"${s.snippet}"</span>
+        </div>`
+    ).join("");
+}
+
+// ── Sub-queries ──
+function renderSubQueries(subQueries) {
+    const box = document.getElementById("subQueriesBox");
+    const list = document.getElementById("subQueriesList");
+
+    if (!subQueries || subQueries.length === 0) {
+        box.style.display = "none";
+        return;
+    }
+
+    box.style.display = "block";
+    list.innerHTML = subQueries.map(q => `<li>${q}</li>`).join("");
+}
+
+// ── Conversation History ──
+function addToHistory(question, answer) {
+    conversationHistory.push({ question, answer });
+
+    const historyBox = document.getElementById("historyBox");
+    const historyList = document.getElementById("historyList");
+
+    historyBox.style.display = "block";
+    historyList.innerHTML = conversationHistory.slice(-3).map((h, i) =>
+        `<div class="history-item">
+            <div class="history-q">Q: ${h.question}</div>
+            <div class="history-a">A: ${h.answer.substring(0, 100)}...</div>
+        </div>`
+    ).join("");
+}
+
+// ── Ask Question ──
+async function askQuestion() {
+    const question = document.getElementById("questionInput").value.trim();
+    if (!question) { showModal("Please enter a question."); return; }
+
     const formData = new FormData();
     formData.append("question", question);
+    formData.append("session_id", sessionId);
 
     showLoader();
-
     try {
-        const response = await fetch("/query", {
-            method: "POST",
-            body: formData
-        });
-
+        const response = await fetch("/query", { method: "POST", body: formData });
         const data = await response.json();
 
         const answerBox = document.getElementById("answerBox");
@@ -200,33 +261,41 @@ async function askQuestion() {
         answerBox.style.display = "block";
         answerBox.classList.add("fade-in");
 
+        renderConfidence(data.confidence);
+        renderSubQueries(data.sub_queries);
         typeWriterEffect(data.answer, answerText);
+        renderSources(data.sources);
+        addToHistory(question, data.answer);
 
-    } catch (error) {
+        document.getElementById("questionInput").value = "";
+
+    } catch (err) {
         showModal("Something went wrong. Please try again.");
     }
-
     hideLoader();
 }
 
-// -----------------------------
-// RESET
-// -----------------------------
-function clearAll() {
+// ── Reset ──
+async function resetSession() {
+    const formData = new FormData();
+    formData.append("session_id", sessionId);
+
+    await fetch("/reset", { method: "POST", body: formData });
+
     document.getElementById("questionInput").value = "";
     fileInput.value = "";
-    filePreview.innerText = "";
+    document.getElementById("filePreview").innerText = "";
+    document.getElementById("docStats").style.display = "none";
     document.getElementById("answerBox").style.display = "none";
+    document.getElementById("historyBox").style.display = "none";
+    document.getElementById("historyList").innerHTML = "";
+    conversationHistory = [];
 }
 
-// -----------------------------
-// DARK MODE
-// -----------------------------
+// ── Dark Mode ──
 function toggleDarkMode() {
     document.body.classList.toggle("dark-mode");
 }
-
 </script>
-
 </body>
 </html>
